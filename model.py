@@ -134,6 +134,47 @@ class BilinearOutput(nn.Module):
         p_scores.data.masked_fill_(p_mask.data, -float('inf'))
         return p_scores  # [batch_size, p_len]
 
+class CharacterEmbedding(nn.Module):
+    """
+    Find the embedding of the words based on character level convolutions
+    useful to deal with out of domain words specifically with low resource train data, since they get to learn the embeddings from the characters of the words
+    expecting that they will better deal with bioasq and newsqa datasets even if their vocabulary was not seen in the training 
+    """
+    def __init__(self,vocab_size,char_embedding_dim,word_embedding_dim,kernel_size=5):
+        super().__init__()
+        self.vocab_size = vocab_size
+        self.char_embedding_dim = char_embedding_dim
+        self.word_embedding_dim = word_embedding_dim
+        self.embedding = nn.Embedding(self.vocab_size,self.char_embedding_dim)
+        self.conv1d = nn.Conv1d(self.char_embedding_dim,self.word_embedding_dim,kernel_size,padding=(kernel_size-1)//2)
+    
+    def forward(self,x):
+        """
+            Args:
+            x: tensor of dimension B*T*W where B is batch size, T is sequence length, W is word length 
+        """
+        batchsize = x.size(0)
+        seq_len = x.size(1)
+        max_word_len = x.size(2)
+        # find the character mask
+        binary_mask = (x>0).unsqueeze(3).long() # B*T*W*1
+        binary_mask_tiled = binary_mask.repeat(1,1,1,self.word_embedding_dim).reshape(-1,max_word_len,self.word_embedding_dim).permute(0,2,1)
+        char_embedded_x = self.embedding(x) # B*T*W*char_embedding_dim
+        char_embedded_x = char_embedded_x.reshape(-1,char_embedded_x.size(2),char_embedded_x.size(3))#(B*T)*W*char_embedding_dim
+        # permute to get into a format suitable for 1d conv 
+        char_embedded_x = char_embedded_x.permute(0,2,1) # (B*T) * char_embedding_dim * W
+        conv_char_embedding = self.conv1d(char_embedded_x) #(B*T) * word_embedding_dim * W
+        # Average pooling to get them all to the same dimension
+        sum_values = (binary_mask_tiled*conv_char_embedding).sum(dim=-1)# (B*T) * word_embedding_dim
+        mask_sum = binary_mask.squeeze(3).sum(-1)
+        mask_sum = torch.where(mask_sum > 0,mask_sum.float(),torch.ones(mask_sum.size())*1e-7).reshape(-1,1)
+        average_pool = sum_values / mask_sum
+        result = average_pool.reshape(batchsize,seq_len,self.word_embedding_dim)
+        return result # B*T*word_embedding_dim
+
+
+
+
 
 class BaselineReader(nn.Module):
     """

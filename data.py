@@ -11,7 +11,7 @@ import torch
 from torch.utils.data import Dataset
 from random import shuffle
 from utils import cuda, load_dataset
-
+import re
 
 PAD_TOKEN = '[PAD]'
 UNK_TOKEN = '[UNK]'
@@ -22,6 +22,8 @@ class Vocabulary:
     This class creates two dictionaries mapping:
         1) words --> indices,
         2) indices --> words.
+        3) characters --> indices,
+        4) indices --> characters.
 
     Args:
         samples: A list of training examples stored in `QADataset.samples`.
@@ -33,11 +35,18 @@ class Vocabulary:
             All words will be lowercased.
         encoding: A dictionary mapping words (string) to indices (int).
         decoding: A dictionary mapping indices (int) to words (string).
+        charset: A list of all the characters in the dataset in addition to unk
     """
     def __init__(self, samples, vocab_size):
         self.words = self._initialize(samples, vocab_size)
         self.encoding = {word: index for (index, word) in enumerate(self.words)}
         self.decoding = {index: word for (index, word) in enumerate(self.words)}
+        self.charset = [PAD_TOKEN, UNK_TOKEN] + list(filter(lambda x:x!=None,set([char if re.match(r"[a-z0-9,.?!'\"()]+",char) else None for word in self.words[2:] for char in word ]))) #ignore the the unk and pad token from the list of words
+
+        print(self.charset)
+        self.charencoding = {char: index for (index, char) in enumerate(self.charset)}
+        self.max_word_length = max([len(word) for word in self.words[2:]]) # find the maximum words length
+        print("Number of characters = {}".format(len(self.charset)))
 
     def _initialize(self, samples, vocab_size):
         """
@@ -66,13 +75,17 @@ class Vocabulary:
     
     def __len__(self):
         return len(self.words)
+    
+    def numCharacters(self):
+        return len(self.charset)
 
 
 class Tokenizer:
     """
-    This class provides two methods converting:
+    This class provides three methods converting:
         1) List of words --> List of indices,
-        2) List of indices --> List of words.
+        2) List of indices --> List of words,
+        3) List of words --> List of List of character indices.
 
     Args:
         vocabulary: An instantiated `Vocabulary` object.
@@ -86,8 +99,10 @@ class Tokenizer:
     """
     def __init__(self, vocabulary):
         self.vocabulary = vocabulary
+        self.max_word_length = self.vocabulary.max_word_length
         self.pad_token_id = self.vocabulary.encoding[PAD_TOKEN]
         self.unk_token_id = self.vocabulary.encoding[UNK_TOKEN]
+        self.unk_char_token_id = self.vocabulary.charencoding[UNK_TOKEN]
 
     def convert_tokens_to_ids(self, tokens):
         """
@@ -118,6 +133,38 @@ class Tokenizer:
             self.vocabulary.decoding.get(token_id, UNK_TOKEN)
             for token_id in token_ids
         ]
+    
+    def convert_tokens_to_character_ids(self,tokens):
+        """
+        Converts tokens to a list of list of character indices padded up to max word length
+
+        Args:
+            tokens: a list of words
+            max_word_length: maximum word lenght in the vocab , if word lenght is greater than the maximum word length then should truncate, otherwise should pad if not equal
+
+        Returns:
+            A list of the actual lengths of each word
+            A list of list of character indices (int)
+            
+            
+        """
+        seq_char_list = []
+        for token in tokens:
+            word_char_list = []
+            for i in range(self.max_word_length):
+                if i<len(token):
+                    word_char_list.append(self.vocabulary.charencoding.get(token[i],self.unk_char_token_id))
+                else:
+                    word_char_list.append(self.vocabulary.charencoding.get(PAD_TOKEN))
+            seq_char_list.append(word_char_list)
+                    
+        return [len(token) for token in tokens], seq_char_list
+        # #[
+        #     [ self.vocabulary.charencoding.get(token[i], self.unk_char_token_id) if i<len(token) else self.vocabulary.charencoding.get(PAD_TOKEN)
+        #     for i in range(self.max_word_length) ] for token in tokens
+        # ]
+
+
 
 
 class QADataset(Dataset):
@@ -203,6 +250,10 @@ class QADataset(Dataset):
         questions = []
         start_positions = []
         end_positions = []
+        passages_char = []
+        questions_char = []
+        passage_lens = []
+        question_lens = []
         for idx in example_idxs:
             # Unpack QA sample and tokenize passage/question.
             qid, passage, question, answer_start, answer_end = self.samples[idx]
@@ -216,14 +267,28 @@ class QADataset(Dataset):
             )
             answer_start_ids = torch.tensor(answer_start)
             answer_end_ids = torch.tensor(answer_end)
+            #import pdb;pdb.set_trace()
+            # convert word characters to tensor
+            passage_word_lens, passage_chars = self.tokenizer.convert_tokens_to_character_ids(passage) # plen, plen * max_word_len
+           
+            passage_char_ids = torch.tensor(passage_chars)
+            passage_word_len = torch.tensor(passage_word_lens) #plen
+
+            question_word_lens, question_chars = self.tokenizer.convert_tokens_to_character_ids(question) # qlen, qlen * max_word_len
+            question_char_ids = torch.tensor(question_chars) 
+            question_word_len = torch.tensor(question_word_lens) #qlen
 
             # Store each part in an independent list.
             passages.append(passage_ids)
             questions.append(question_ids)
             start_positions.append(answer_start_ids)
             end_positions.append(answer_end_ids)
+            passages_char.append(passage_char_ids)
+            questions_char.append(question_char_ids)
+            passage_lens.append(passage_word_len)
+            question_lens.append(question_word_len)
 
-        return zip(passages, questions, start_positions, end_positions)
+        return zip(passages, questions, start_positions, end_positions,passages_char,questions_char,passage_lens,question_lens)
 
     def _create_batches(self, generator, batch_size):
         """
@@ -256,6 +321,10 @@ class QADataset(Dataset):
 
             passages = []
             questions = []
+            passages_char = []
+            questions_char = []
+ 
+
             start_positions = torch.zeros(bsz)
             end_positions = torch.zeros(bsz)
             max_passage_length = 0
@@ -264,8 +333,13 @@ class QADataset(Dataset):
             for ii in range(bsz):
                 passages.append(current_batch[ii][0])
                 questions.append(current_batch[ii][1])
+                passages_char.append(current_batch[ii][4])
+                questions_char.append(current_batch[ii][5])
                 start_positions[ii] = current_batch[ii][2]
                 end_positions[ii] = current_batch[ii][3]
+            
+                # p_wlens.append(current_batch[ii][6])
+                # q_wlens.append(current_batch[ii][7])
                 max_passage_length = max(
                     max_passage_length, len(current_batch[ii][0])
                 )
@@ -277,18 +351,40 @@ class QADataset(Dataset):
             # index is other than 0.
             padded_passages = torch.zeros(bsz, max_passage_length)
             padded_questions = torch.zeros(bsz, max_question_length)
+
+            # create a vector for the word characters, use the pad character index for words that are pad tokens
+            # Assume character pad index = 0
+            max_word_length = current_batch[0][4].size(-1)
+            padded_passages_char = torch.zeros(bsz,max_passage_length,max_word_length)
+            padded_questions_char = torch.zeros(bsz,max_question_length,max_word_length)
+            padded_passage_word_lens = torch.zeros(bsz,max_passage_length,max_word_length)
+            padded_question_word_lens = torch.zeros(bsz,max_question_length,max_word_length)
+
+
+
+
             # Pad passages and questions
-            for iii, passage_question in enumerate(zip(passages, questions)):
-                passage, question = passage_question
+            for iii, passage_question in enumerate(zip(passages, questions,passages_char,questions_char)):
+                passage, question , passage_char, question_char = passage_question
                 padded_passages[iii][:len(passage)] = passage
                 padded_questions[iii][:len(question)] = question
+                padded_passages_char[iii][:passage_char.size(0)][:] = passage_char
+                padded_questions_char[iii][:question_char.size(0)][:] = question_char
+                # padded_passage_word_lens[iii][:len(passage)][:] =
+                # padded_question_word_lens[iii][:len(question)] = q_wlen
+
 
             # Create an input dictionary
             batch_dict = {
                 'passages': cuda(self.args, padded_passages).long(),
                 'questions': cuda(self.args, padded_questions).long(),
                 'start_positions': cuda(self.args, start_positions).long(),
-                'end_positions': cuda(self.args, end_positions).long()
+                'end_positions': cuda(self.args, end_positions).long(),
+                'passages_char': cuda(self.args,padded_passages_char).long(),
+                'questions_char': cuda(self.args,padded_questions_char).long()
+                # 'passages_word_lens': cuda(self.args,padded_passage_word_lens).long(),
+                # 'questions_word_lens': cuda(self.args,padded_question_word_lens).long()
+
             }
 
             if no_more_data:

@@ -171,6 +171,22 @@ parser.add_argument(
     help='embedding dimension',
 )
 parser.add_argument(
+    '--char_embedding_dim',
+    type=int,
+    default=70,
+    help="embedding dimension used to embed characters for the character embedding layer"
+)
+parser.add_argument(
+    '--char_embed_layer_embedding_dim',
+    default=100,
+    help="embedding dimension that is output from the character embedding layer"
+)
+parser.add_argument(
+    '--kernel_size',
+    default=5,
+    help="size of kernel used to calculate character embeddings"
+)
+parser.add_argument(
     '--hidden_dim',
     type=int,
     default=256,
@@ -471,7 +487,9 @@ def main(args):
         dataset.register_tokenizer(tokenizer)
     args.vocab_size = len(vocabulary)
     args.pad_token_id = tokenizer.pad_token_id
+    args.char_vocab_size = vocabulary.numCharacters()
     print(f'vocab words = {len(vocabulary)}')
+    print(f'num characters = {args.char_vocab_size}')
 
     # Print number of samples.
     print(f'train samples = {len(train_dataset)}')

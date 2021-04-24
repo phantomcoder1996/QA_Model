@@ -172,16 +172,12 @@ class CharacterEmbedding(nn.Module):
         result = average_pool.reshape(batchsize,seq_len,self.word_embedding_dim)
         return result # B*T*word_embedding_dim
 
-
-
-
-
 class BaselineReader(nn.Module):
     """
     Baseline QA Model
     [Architecture]
         0) Inputs: passages and questions
-        1) Embedding Layer: converts words to vectors
+        1) Embedding Layer: converts words to vectors + char Embedding Layer: create word vectors from character embeddings
         2) Context2Query: computes weighted sum of question embeddings for
                each position in passage.
         3) Passage Encoder: LSTM or GRU.
@@ -216,15 +212,16 @@ class BaselineReader(nn.Module):
 
         # Initialize embedding layer (1)
         self.embedding = nn.Embedding(args.vocab_size, args.embedding_dim)
+        self.char_embedding = CharacterEmbedding(args.char_vocab_size,args.char_embedding_dim,args.char_embed_layer_embedding_dim,args.kernel_size)
 
         # Initialize Context2Query (2)
-        self.aligned_att = AlignedAttention(args.embedding_dim)
+        self.aligned_att = AlignedAttention(args.embedding_dim+args.char_embed_layer_embedding_dim)
 
         rnn_cell = nn.LSTM if args.rnn_cell_type == 'lstm' else nn.GRU
 
         # Initialize passage encoder (3)
         self.passage_rnn = rnn_cell(
-            args.embedding_dim * 2,
+            args.embedding_dim * 2 + args.char_embed_layer_embedding_dim * 2 ,
             args.hidden_dim,
             bidirectional=args.bidirectional,
             batch_first=True,
@@ -232,7 +229,7 @@ class BaselineReader(nn.Module):
 
         # Initialize question encoder (4)
         self.question_rnn = rnn_cell(
-            args.embedding_dim,
+            args.embedding_dim + args.char_embed_layer_embedding_dim,
             args.hidden_dim,
             bidirectional=args.bidirectional,
             batch_first=True,
@@ -321,9 +318,15 @@ class BaselineReader(nn.Module):
         passage_lengths = passage_mask.long().sum(-1)  # [batch_size]
         question_lengths = question_mask.long().sum(-1)  # [batch_size]
 
-        # 1) Embedding Layer: Embed the passage and question.
-        passage_embeddings = self.embedding(batch['passages'])  # [batch_size, p_len, p_dim]
-        question_embeddings = self.embedding(batch['questions'])  # [batch_size, q_len, q_dim]
+        # 1) Embedding Layer: Embed the passage and question. + char embedding layer: Embed the passage characters and the question characters + concatenate both embeddings
+        p_embeddings = self.embedding(batch['passages'])  # [batch_size, p_len, p_dim]
+        q_embeddings = self.embedding(batch['questions'])  # [batch_size, q_len, q_dim]
+        passage_char_embeddings = self.char_embedding(batch['passages_char']) #[batch_size, p_len, character_embed_layer_dim]
+        question_char_embeddings = self.char_embedding(batch['questions_char']) #[batch_size, p_len, character_embed_layer_dim]
+         
+        # concatenate both embeddings before passing into the encoder
+        passage_embeddings = torch.cat((p_embeddings,passage_char_embeddings),dim=-1) #[batch_size,p_len,p_dim+char_embed_layer_dim]
+        question_embeddings = torch.cat((q_embeddings,question_char_embeddings),dim=-1) #[batch_size,p_len,q_dim+char_embed_layer_dim]
 
         # 2) Context2Query: Compute weighted sum of question embeddings for
         #        each passage word and concatenate with passage embeddings.

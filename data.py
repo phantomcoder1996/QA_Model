@@ -12,6 +12,7 @@ from torch.utils.data import Dataset
 from random import shuffle
 from utils import cuda, load_dataset
 import re
+import string
 
 PAD_TOKEN = '[PAD]'
 UNK_TOKEN = '[UNK]'
@@ -41,7 +42,7 @@ class Vocabulary:
         self.words = self._initialize(samples, vocab_size)
         self.encoding = {word: index for (index, word) in enumerate(self.words)}
         self.decoding = {index: word for (index, word) in enumerate(self.words)}
-        self.charset = [PAD_TOKEN, UNK_TOKEN] + list(filter(lambda x:x!=None,set([char if re.match(r"[a-z0-9,.?!'\"()]+",char) else None for word in self.words[2:] for char in word ]))) #ignore the the unk and pad token from the list of words
+        self.charset = [PAD_TOKEN, UNK_TOKEN] + list(filter(lambda x:x!=None,set([char if re.match(r"[a-z0-9]+",char) or char in string.punctuation else None for word in self.words[2:] for char in word ]))) #ignore the the unk and pad token from the list of words
 
         print(self.charset)
         self.charencoding = {char: index for (index, char) in enumerate(self.charset)}

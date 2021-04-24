@@ -167,7 +167,7 @@ class CharacterEmbedding(nn.Module):
         # Average pooling to get them all to the same dimension
         sum_values = (binary_mask_tiled*conv_char_embedding).sum(dim=-1)# (B*T) * word_embedding_dim
         mask_sum = binary_mask.squeeze(3).sum(-1)
-        mask_sum = torch.where(mask_sum > 0,mask_sum.float(),cuda(self.args,torch.ones(mask_sum.size())*1e-7)).reshape(-1,1)
+        mask_sum = torch.where(mask_sum > 0,mask_sum.float(),(torch.ones(mask_sum.size())*1e-7).cuda()).reshape(-1,1)
         average_pool = sum_values / mask_sum
         result = average_pool.reshape(batchsize,seq_len,self.word_embedding_dim)
         return result # B*T*word_embedding_dim

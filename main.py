@@ -178,11 +178,13 @@ parser.add_argument(
 )
 parser.add_argument(
     '--char_embed_layer_embedding_dim',
+    type=int,
     default=100,
     help="embedding dimension that is output from the character embedding layer"
 )
 parser.add_argument(
     '--kernel_size',
+    type=int,
     default=5,
     help="size of kernel used to calculate character embeddings"
 )

@@ -33,7 +33,7 @@ from tqdm import tqdm
 
 from data import QADataset, Tokenizer, Vocabulary
 
-from model import BaselineReader
+from model import BaselineReader, AttentiveReader
 from utils import cuda, search_span_endpoints, unpack
 
 
@@ -58,7 +58,7 @@ parser.add_argument(
     '--model',
     type=str,
     required=True,
-    choices=['baseline'],
+    choices=['baseline','attentive'],
     help='which model to use',
 )
 parser.add_argument(
@@ -238,6 +238,8 @@ def _select_model(args):
     """
     if args.model == 'baseline':
         return BaselineReader(args)
+    elif args.model == 'attentive':
+        return AttentiveReader(args)
     else:
         raise RuntimeError(f'model \'{args.model}\' not recognized!')
 

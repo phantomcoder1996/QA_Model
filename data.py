@@ -38,8 +38,12 @@ class Vocabulary:
         decoding: A dictionary mapping indices (int) to words (string).
         charset: A list of all the characters in the dataset in addition to unk
     """
-    def __init__(self, samples, vocab_size):
-        self.words = self._initialize(samples, vocab_size)
+    def __init__(self, samples, vocab_size,filepath=None,load_from_file=False):
+        if load_from_file:
+            self.words = self._load_vocab_from_file(filepath)
+        else:
+            # just create the vocabulary from the training data
+            self.words = self._initialize(samples, vocab_size)
         self.encoding = {word: index for (index, word) in enumerate(self.words)}
         self.decoding = {index: word for (index, word) in enumerate(self.words)}
         self.charset = [PAD_TOKEN, UNK_TOKEN] + list(filter(lambda x:x!=None,set([char if re.match(r"[a-z0-9]+",char) or char in string.punctuation else None for word in self.words[2:] for char in word ]))) #ignore the the unk and pad token from the list of words
@@ -48,6 +52,7 @@ class Vocabulary:
         self.charencoding = {char: index for (index, char) in enumerate(self.charset)}
         self.max_word_length = max([len(word) for word in self.words[2:]]) # find the maximum words length
         print("Number of characters = {}".format(len(self.charset)))
+
 
     def _initialize(self, samples, vocab_size):
         """
@@ -76,7 +81,22 @@ class Vocabulary:
     
     def __len__(self):
         return len(self.words)
-    
+
+    def _load_vocab_from_file(self,filepath):
+        """
+        loads the vocabulary words from file
+        
+        Args:
+            filepath: path of the vocabfile
+
+        Returns:
+            words: list of words in file
+        """
+        words = []
+        with open(filepath,"r",encoding="utf-8") as f:
+            words = [line.strip() for line in f.readlines()]
+        return [PAD_TOKEN, UNK_TOKEN] + words
+
     def numCharacters(self):
         return len(self.charset)
 
@@ -187,7 +207,12 @@ class QADataset(Dataset):
     """
     def __init__(self, args, path):
         self.args = args
-        self.meta, self.elems = load_dataset(path)
+        print("Number of data sets provided = {}".format(len(path)))
+        print(path)
+        self.elems = []
+        for datapath in path:
+            meta, elems = load_dataset(datapath)
+            self.elems.extend(elems)
         self.samples = self._create_samples()
         self.tokenizer = None
         self.batch_size = args.batch_size if 'batch_size' in args else 1

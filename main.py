@@ -36,7 +36,8 @@ from data import QADataset, Tokenizer, Vocabulary
 from model import BaselineReader, AttentiveReader
 from utils import cuda, search_span_endpoints, unpack
 
-
+import torch.utils.tensorboard as tb
+import os
 _TQDM_BAR_SIZE = 75
 _TQDM_LEAVE = False
 _TQDM_UNIT = ' batches'
@@ -76,12 +77,14 @@ parser.add_argument(
 parser.add_argument(
     '--train_path',
     type=str,
+    nargs="+",
     required=True,
     help='training dataset path',
 )
 parser.add_argument(
     '--dev_path',
     type=str,
+    nargs="+",
     required=True,
     help='dev dataset path',
 )
@@ -165,6 +168,11 @@ parser.add_argument(
     help='vocabulary size (dynamically set, do not change!)',
 )
 parser.add_argument(
+    '--vocab_path',
+    default = None,
+    help='path of the file containing the model vocabulary'
+)
+parser.add_argument(
     '--embedding_dim',
     type=int,
     default=300,
@@ -210,6 +218,16 @@ parser.add_argument(
     type=float,
     default=0.,
     help='dropout on passage and question vectors',
+)
+
+parser.add_argument(
+    '--logdir',
+    default="logging"
+)
+
+parser.add_argument(
+    '--run',
+    default="default_run"
 )
 
 
@@ -296,7 +314,7 @@ def _calculate_loss(
     return (start_loss + end_loss) / 2.
 
 
-def train(args, epoch, model, dataset):
+def train(args, epoch, model, dataset,train_writer=None):
     """
     Trains the model for a single epoch using the training dataset.
 
@@ -346,6 +364,10 @@ def train(args, epoch, model, dataset):
         if args.grad_clip > 0.:
             torch.nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip)
         optimizer.step()
+
+        # update tensorboard
+        if train_writer !=None:
+            train_writer.add_scalar("train_loss",loss, global_step=train_steps)
 
         # Update tqdm bar.
         train_loss += loss.item()
@@ -485,7 +507,13 @@ def main(args):
     dev_dataset = QADataset(args, args.dev_path)
 
     # Create vocabulary and tokenizer.
-    vocabulary = Vocabulary(train_dataset.samples, args.vocab_size)
+    if args.vocab_path != None:
+        print("loading vocabulary from file at {}".format(args.vocab_path))
+        vocabulary = Vocabulary(train_dataset.samples, args.vocab_size,load_from_file=True,filepath= args.vocab_path)
+    else:
+        print("constructing the vocab from dataset examples")
+        vocabulary = Vocabulary(train_dataset.samples, args.vocab_size)
+
     tokenizer = Tokenizer(vocabulary)
     for dataset in (train_dataset, dev_dataset):
         dataset.register_tokenizer(tokenizer)
@@ -522,6 +550,10 @@ def main(args):
     print()
 
     if args.do_train:
+        # create tensorboard summary writer
+        train_writer = tb.SummaryWriter(log_dir=os.path.join(args.logdir,args.run+"_train"))
+        valid_writer = tb.SummaryWriter(log_dir=os.path.join(args.logdir,args.run+"_valid"))
+        
         # Track training statistics for checkpointing.
         eval_history = []
         best_eval_loss = float('inf')
@@ -529,8 +561,11 @@ def main(args):
         # Begin training.
         for epoch in range(1, args.epochs + 1):
             # Perform training and evaluation steps.
-            train_loss = train(args, epoch, model, train_dataset)
+            train_loss = train(args, epoch, model, train_dataset,train_writer)
             eval_loss = evaluate(args, epoch, model, dev_dataset)
+
+            # write the loss to tensorboard
+            valid_writer.add_scalar("valid_loss",eval_loss, global_step=epoch)
 
             # If the model's evaluation loss yields a global improvement,
             # checkpoint the model.

@@ -323,7 +323,7 @@ def _calculate_loss(
     return (start_loss + end_loss) / 2.
 
 
-def train(args, epoch, model, dataset,train_writer=None):
+def train(args, epoch, model, dataset,train_writer=None,train_samples_num=0):
     """
     Trains the model for a single epoch using the training dataset.
 
@@ -377,7 +377,7 @@ def train(args, epoch, model, dataset,train_writer=None):
 
         # update tensorboard
         if train_writer !=None:
-            train_writer.add_scalar("train_loss",loss, global_step=train_steps)
+            train_writer.add_scalar("train_loss",loss, global_step=epoch*train_samples_num+train_steps)
 
         # Update tqdm bar.
         train_loss += loss.item()
@@ -534,6 +534,7 @@ def main(args):
     print(f'num characters = {args.char_vocab_size}')
 
     # Print number of samples.
+    num_train_samples =len(train_dataset)
     print(f'train samples = {len(train_dataset)}')
     print(f'dev samples = {len(dev_dataset)}')
     print()
@@ -576,7 +577,7 @@ def main(args):
         # Begin training.
         for epoch in range(1, args.epochs + 1):
             # Perform training and evaluation steps.
-            train_loss = train(args, epoch, model, train_dataset,train_writer)
+            train_loss = train(args, epoch, model, train_dataset,train_writer,num_train_samples)
             eval_loss = evaluate(args, epoch, model, dev_dataset)
 
             # write the loss to tensorboard

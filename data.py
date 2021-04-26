@@ -13,7 +13,7 @@ from random import shuffle
 from utils import cuda, load_dataset
 import re
 import string
-
+#from memory_profiler import profile
 PAD_TOKEN = '[PAD]'
 UNK_TOKEN = '[UNK]'
 
@@ -252,7 +252,8 @@ class QADataset(Dataset):
                 )
                 
         return samples
-
+    
+    
     def _create_data_generator(self, shuffle_examples=False):
         """
         Converts preprocessed text data to Torch tensors and returns a
@@ -271,15 +272,15 @@ class QADataset(Dataset):
         example_idxs = list(range(len(self.samples)))
         if shuffle_examples:
             shuffle(example_idxs)
-
-        passages = []
-        questions = []
-        start_positions = []
-        end_positions = []
-        passages_char = []
-        questions_char = []
-        passage_lens = []
-        question_lens = []
+        
+        # passages = []
+        # questions = []
+        # start_positions = []
+        # end_positions = []
+        # passages_char = []
+        # questions_char = []
+        # passage_lens = []
+        # question_lens = []
         for idx in example_idxs:
             # Unpack QA sample and tokenize passage/question.
             qid, passage, question, answer_start, answer_end = self.samples[idx]
@@ -304,17 +305,18 @@ class QADataset(Dataset):
             question_char_ids = torch.tensor(question_chars) 
             question_word_len = torch.tensor(question_word_lens) #qlen
 
-            # Store each part in an independent list.
-            passages.append(passage_ids)
-            questions.append(question_ids)
-            start_positions.append(answer_start_ids)
-            end_positions.append(answer_end_ids)
-            passages_char.append(passage_char_ids)
-            questions_char.append(question_char_ids)
-            passage_lens.append(passage_word_len)
-            question_lens.append(question_word_len)
+            # # Store each part in an independent list.
+            # passages.append(passage_ids)
+            # questions.append(question_ids)
+            # start_positions.append(answer_start_ids)
+            # end_positions.append(answer_end_ids)
+            # passages_char.append(passage_char_ids)
+            # questions_char.append(question_char_ids)
+            # passage_lens.append(passage_word_len)
+            # question_lens.append(question_word_len)
+            yield (passage_ids,question_ids,answer_start_ids,answer_end_ids,passage_char_ids,question_char_ids,passage_word_len,question_word_len)
 
-        return zip(passages, questions, start_positions, end_positions,passages_char,questions_char,passage_lens,question_lens)
+        #return zip(passages, questions, start_positions, end_positions,passages_char,questions_char,passage_lens,question_lens)
 
     def _create_batches(self, generator, batch_size):
         """
@@ -383,9 +385,6 @@ class QADataset(Dataset):
             max_word_length = current_batch[0][4].size(-1)
             padded_passages_char = torch.zeros(bsz,max_passage_length,max_word_length)
             padded_questions_char = torch.zeros(bsz,max_question_length,max_word_length)
-            padded_passage_word_lens = torch.zeros(bsz,max_passage_length,max_word_length)
-            padded_question_word_lens = torch.zeros(bsz,max_question_length,max_word_length)
-
 
 
 

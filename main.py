@@ -340,14 +340,14 @@ def train(args, epoch, model, dataset,train_writer=None):
         lr=args.learning_rate,
         weight_decay=args.weight_decay,
     )
-    print("failed before train data loader")
+    print("before train data loader")
     # Set up training dataloader. Creates `args.batch_size`-sized
     # batches from available samples.
     train_dataloader = tqdm(
         dataset.get_batch(shuffle_examples=args.shuffle_examples),
         **_TQDM_OPTIONS,
     )
-    print("failed after train data loader")
+    print("after train data loader")
 
     for batch in train_dataloader:
         # Zero gradients.

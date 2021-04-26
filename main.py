@@ -230,6 +230,15 @@ parser.add_argument(
     default="default_run"
 )
 
+parser.add_argument(
+    '--finetune',
+    default=0,
+    type=int
+)
+parser.add_argument(
+    '--init_model',
+    help="path for the initial model"
+)
 
 def _print_arguments(args):
     """Pretty prints command line args to stdout.
@@ -544,6 +553,11 @@ def main(args):
 
     if args.use_gpu:
         model = cuda(args, model)
+    
+    # load the model from previous checkpoint
+    if args.finetune>=1:
+        print("preparing to load {} as base model".format(args.init_model))
+        model.load_state_dict(torch.load(args.init_model, map_location='cpu'))
 
     params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print(f'using model \'{args.model}\' ({params} params)')
